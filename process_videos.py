@@ -236,9 +236,9 @@ def convert_video(video_path, out_path):
 
 
 if __name__ == '__main__':
-    path1 = '../../../kek1.mp4'
-    path2 = '../../../kek2.mp4'
-    out_path = '../../../kek5.mp4'
+    path1 = '../../kek1.mp4'
+    path2 = '../../kek2.mp4'
+    out_path = '../../kek5.mp4'
 
     e = load_model()
 
