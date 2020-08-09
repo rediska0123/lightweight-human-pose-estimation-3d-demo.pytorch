@@ -12,7 +12,26 @@ def load_model(model='human-pose-estimation-3d.pth', device='CPU'):
     return InferenceEnginePyTorch(model, device)
 
 
-def find_humans(frame, net):
+def find_central(poses, prev_pose=None):
+    pose = poses[:, 0:57]
+    pose = pose.reshape((len(pose), -1, 3))
+    posex = pose[:, :, 0]
+    posey = pose[:, :, 1]
+    avgsx = np.average(posex, axis=1)
+    avgsy = np.average(posey, axis=1)
+    avgx = np.average(avgsx)
+    avgy = np.average(avgsy)
+    errs = (avgsx - np.repeat(avgx, len(pose), axis=0)) ** 2 + (avgsy - np.repeat(avgy, len(pose), axis=0)) ** 2
+    if prev_pose is not None:
+        errs += 80 * np.average((poses - np.repeat(prev_pose, len(poses), axis=0) ** 2), axis=1)
+    res, min_err = -1, np.inf
+    for i in range(len(errs)):
+        if errs[i] < min_err:
+            res, min_err = i, errs[i]
+    return np.expand_dims(poses[res], axis=0)
+
+
+def find_humans(frame, net, prev_pose=None):
     stride = 8
     base_height = 256
     input_scale = base_height / frame.shape[0]
@@ -22,7 +41,7 @@ def find_humans(frame, net):
     inference_result = net.infer(scaled_img)
     fx = np.float32(0.8 * frame.shape[1])
     poses_3d, poses_2d = parse_poses(inference_result, input_scale, stride, fx, True)
-    return poses_2d.copy()
+    return find_central(poses_2d.copy(), prev_pose)
 
 
 def draw_humans(frame, poses_2d):
@@ -55,13 +74,14 @@ def normalize_pose(p):
     return p
 
 
-def count_pos_error(pos1, pos2):
-    return 0
-    p1 = pos1.copy()
-    p2 = pos2.copy()
+def pose_to_points_array(pose):
+    pose = pose.copy()
+    return pose[0, :-1].reshape((-1, 3))[:, 0:2]
 
-    p1 = normalize_pose(p1)
-    p2 = normalize_pose(p2)
+
+def count_pos_error(pos1, pos2):
+    p1 = normalize_pose(pose_to_points_array(pos1))
+    p2 = normalize_pose(pose_to_points_array(pos2))
     return round(((p1 - p2) ** 2).sum(axis=1).mean().item() * 1000000)
 
 
@@ -151,9 +171,10 @@ class Logger:
 
 
 def draw_arrows(frame, train_pose, my_pose):
-    return frame
     train_normalized = normalize_pose(train_pose.copy())
     my_normalized = normalize_pose(my_pose.copy())
+    train_pose = pose_to_points_array(train_pose)
+    my_pose = pose_to_points_array(my_pose)
     train_center = train_pose.mean(axis=0)
     my_center = my_pose.mean(axis=0)
     for i in range(my_normalized.shape[0]):
@@ -183,8 +204,8 @@ def make_video(path1, path2, out_path, res_estimator, processing_log=None):
 
     def frame_modifier(frame1, frame2):
         nonlocal prv1, prv2, cur1, cur2, prv_frame1, prv_frame2, h, w
-        nxt1 = find_humans(frame1, res_estimator)
-        nxt2 = find_humans(frame2, res_estimator)
+        nxt1 = find_humans(frame1, res_estimator, cur1)
+        nxt2 = find_humans(frame2, res_estimator, cur2)
         if prv1 is None:
             prv1, prv2 = nxt1, nxt2
         elif cur1 is None:
